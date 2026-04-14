@@ -1,0 +1,48 @@
+modules:
+  jiraServiceManagement:portalRequestDetailPanel:
+    - key: incode-identity-verification-hello-world-panel
+      resource: main
+      resolver:
+        function: resolver
+      viewportSize: medium
+      title: Incode Identity Verification
+  jira:adminPage:
+    - key: incode-admin-page
+      resource: admin
+      resolver:
+        function: resolver
+      title: Incode Verification Settings
+  function:
+    - key: resolver
+      handler: index.handler
+    - key: webhook-handler
+      handler: webhook.handler
+  webtrigger:
+    - key: incode-webhook
+      function: webhook-handler
+resources:
+  - key: main
+    path: static/hello-world/build
+  - key: admin
+    path: static/admin/build
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/ef5a33ee-5120-425b-9632-9267de8716e1
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
+    - read:jira-user
+    - read:account
+    - write:jira-work
+    - manage:jira-configuration
+  external:
+    fetch:
+      backend:
+        - address: https://auth.demo.incode.com
+        - address: https://demo-api.incodesmile.com
+        - address: https://auth.incode.com
+        - address: https://saas-api.incodesmile.com
