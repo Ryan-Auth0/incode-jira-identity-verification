@@ -1,7 +1,14 @@
 modules:
-  jiraServiceManagement:portalRequestDetailPanel:
-    - key: incode-identity-verification-hello-world-panel
+  jira:issuePanel:
+    - key: incode-identity-verification-panel
       resource: main
+      resolver:
+        function: resolver
+      title: Incode Identity Verification
+      icon: https://raw.githubusercontent.com/Ryan-Auth0/incode-jira-identity-verification/main/icon.png
+  jiraServiceManagement:portalRequestDetailPanel:
+    - key: incode-portal-panel
+      resource: portal
       resolver:
         function: resolver
       viewportSize: medium
@@ -23,6 +30,8 @@ modules:
 resources:
   - key: main
     path: static/hello-world/build
+  - key: portal
+    path: static/portal/build
   - key: admin
     path: static/admin/build
 app:

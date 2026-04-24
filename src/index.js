@@ -43,11 +43,13 @@ async function getIncodeConfig() {
   };
 }
 
-function renderMessage(template, vars) {
-  return template
-    .replace(/{{name}}/g, vars.name || '')
-    .replace(/{{email}}/g, vars.email || '')
-    .replace(/{{identityId}}/g, vars.identityId || '');
+async function addVerificationHistory(issueKey, entry) {
+  const key = `history:${issueKey}`;
+  const existing = await storage.get(key);
+  const history = existing ? JSON.parse(existing) : [];
+  history.unshift(entry);
+  const trimmed = history.slice(0, 20);
+  await storage.set(key, JSON.stringify(trimmed));
 }
 
 const resolver = new Resolver();
@@ -60,8 +62,51 @@ resolver.define('getConfig', async (req) => {
   };
 });
 
+resolver.define('getSetupStatus', async (req) => {
+  try {
+    const savedConfig = await storage.get('admin-config');
+    if (!savedConfig) return { configured: false };
+    const config = JSON.parse(savedConfig);
+    const configured = !!(config.clientId && config.clientSecret && config.apiKey && config.integrationReference);
+    return { configured };
+  } catch (err) {
+    return { configured: false };
+  }
+});
+
+resolver.define('getVerificationHistory', async (req) => {
+  const issueKey = req.context.extension.issue.key;
+  try {
+    const key = `history:${issueKey}`;
+    const existing = await storage.get(key);
+    return { history: existing ? JSON.parse(existing) : [] };
+  } catch (err) {
+    return { history: [] };
+  }
+});
+
+resolver.define('getPortalVerificationLink', async (req) => {
+  try {
+    const requestKey = req.context.extension.request.key;
+    const key = `history:${requestKey}`;
+    const existing = await storage.get(key);
+    if (!existing) return { link: null, status: null };
+    const history = JSON.parse(existing);
+    const latest = history[0];
+    if (!latest) return { link: null, status: null };
+    return {
+      link: latest.verificationUrl,
+      status: latest.status,
+      deliveryMethod: latest.deliveryMethod,
+      timestamp: latest.timestamp
+    };
+  } catch (err) {
+    return { link: null, status: null };
+  }
+});
+
 resolver.define('sendVerification', async (req) => {
-  const issueKey = req.context.extension.request.key;
+  const issueKey = req.context.extension.issue.key;
   const { corporateEmail, deliveryMethod, deliveryEmail, deliveryPhone } = req.payload;
 
   try {
@@ -89,8 +134,6 @@ resolver.define('sendVerification', async (req) => {
       notification
     };
 
-    console.log('Incode request body:', JSON.stringify(requestBody));
-
     const incodeRes = await fetch(`${urls.api}/omni/b2b/onboarding/request-new`, {
       method: 'POST',
       headers: {
@@ -112,6 +155,21 @@ resolver.define('sendVerification', async (req) => {
 
     const incodeData = JSON.parse(responseText);
 
+    const deliveryDetail = deliveryMethod === 'SMS'
+      ? `SMS to ${deliveryPhone}`
+      : `email to ${deliveryEmail || corporateEmail}`;
+
+    const historyEntry = {
+      timestamp: new Date().toISOString(),
+      corporateEmail,
+      deliveryMethod,
+      deliveryDetail,
+      interviewId: incodeData.interviewId,
+      verificationUrl: incodeData.url,
+      status: 'PENDING',
+      requesterName
+    };
+
     if (incodeData.interviewId) {
       await storage.set(`interview:${incodeData.interviewId}`, JSON.stringify({
         issueKey,
@@ -119,34 +177,9 @@ resolver.define('sendVerification', async (req) => {
         corporateEmail,
         status: 'PENDING'
       }));
+      await addVerificationHistory(issueKey, historyEntry);
       console.log(`Stored interviewId ${incodeData.interviewId} for ticket ${issueKey}`);
     }
-
-    const deliveryDetail = deliveryMethod === 'SMS'
-      ? `SMS to ${deliveryPhone}`
-      : `email to ${deliveryEmail}`;
-
-    await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/comment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        body: {
-          type: 'doc',
-          version: 1,
-          content: [
-            {
-              type: 'paragraph',
-              content: [
-                {
-                  type: 'text',
-                  text: `Incode verification link sent via ${deliveryDetail} for ${corporateEmail}. Awaiting employee completion.`
-                }
-              ]
-            }
-          ]
-        }
-      })
-    });
 
     return {
       success: true,
@@ -168,14 +201,12 @@ resolver.define('sendVerification', async (req) => {
 resolver.define('checkVerificationResult', async (req) => {
   const { interviewId } = req.payload;
   if (!interviewId) return { status: 'PENDING' };
-
   try {
     const stored = await storage.get(`interview:${interviewId}`);
     if (!stored) return { status: 'COMPLETE' };
     const data = JSON.parse(stored);
     return { status: data.status || 'PENDING' };
   } catch (err) {
-    console.error('Error checking result:', err);
     return { status: 'PENDING' };
   }
 });
@@ -187,7 +218,6 @@ resolver.define('testIncodeCredentials', async (req) => {
     if (token) return { success: true };
     return { success: false };
   } catch (err) {
-    console.error('Credential test failed:', err);
     return { success: false };
   }
 });
@@ -213,7 +243,6 @@ resolver.define('getAdminConfig', async (req) => {
     }
 
     const transitions = Object.values(transitionMap);
-
     const defaultConfig = {
       environment: 'demo',
       apiKey: '',
@@ -225,9 +254,9 @@ resolver.define('getAdminConfig', async (req) => {
       passTransitionName: '',
       failTransitionName: '',
       pendingTransitionName: '',
-      passMessage: '✅ Incode verification PASSED for {{name}} ({{email}}). Identity confirmed — you may proceed with the request. Identity ID: {{identityId}}',
-      failMessage: '❌ Incode verification FAILED for {{name}} ({{email}}). Do not proceed — escalate to senior agent for manual review.',
-      pendingMessage: '⚠️ Incode verification requires MANUAL REVIEW for {{name}} ({{email}}). Do not proceed until review is complete.'
+      passMessage: '✅ Incode verification PASSED for {{name}} ({{email}}). Identity confirmed — you may proceed with the request. Identity ID: {{identityId}} | Session ID: {{sessionId}}',
+      failMessage: '❌ Incode verification FAILED for {{name}} ({{email}}). Do not proceed — escalate to senior agent for manual review. Session ID: {{sessionId}}',
+      pendingMessage: '⚠️ Incode verification requires MANUAL REVIEW for {{name}} ({{email}}). Do not proceed until review is complete. Session ID: {{sessionId}}'
     };
 
     return {
@@ -245,20 +274,6 @@ resolver.define('saveAdminConfig', async (req) => {
   await storage.set('admin-config', JSON.stringify(config));
   console.log('Admin config saved');
   return { success: true };
-});
-
-export { renderMessage };
-
-resolver.define('getSetupStatus', async (req) => {
-  try {
-    const savedConfig = await storage.get('admin-config');
-    if (!savedConfig) return { configured: false };
-    const config = JSON.parse(savedConfig);
-    const configured = !!(config.clientId && config.clientSecret && config.apiKey && config.integrationReference);
-    return { configured };
-  } catch (err) {
-    return { configured: false };
-  }
 });
 
 export const handler = resolver.getDefinitions();
