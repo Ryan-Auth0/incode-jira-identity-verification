@@ -24,9 +24,20 @@ modules:
       handler: index.handler
     - key: webhook-handler
       handler: webhook.handler
+    - key: personal-data-handler
+      handler: personalData.handler
   webtrigger:
     - key: incode-webhook
       function: webhook-handler
+  trigger:
+    - key: personal-data-reporting
+      function: personal-data-handler
+      events:
+        - avi:forge:personal-data-classification:v1
+    - key: personal-data-deletion
+      function: personal-data-handler
+      events:
+        - avi:forge:personal-data-deletion:v1
 resources:
   - key: main
     path: static/hello-world/build

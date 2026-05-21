@@ -15,6 +15,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [verificationUrl, setVerificationUrl] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const pollInterval = useRef(null);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ function App() {
     if (deliveryMethod === 'EMAIL' && !deliveryEmail) { alert('Please enter a delivery email'); return; }
     if (deliveryMethod === 'SMS' && !deliveryPhone) { alert('Please enter a phone number'); return; }
     setStatus('sending');
+    setErrorMessage('');
     try {
       const response = await invoke('sendVerification', {
         corporateEmail,
@@ -97,6 +99,7 @@ function App() {
       const histResult = await invoke('getVerificationHistory');
       setHistory(histResult.history || []);
     } catch (err) {
+      setErrorMessage(err.message || 'Failed to send verification link. Please try again.');
       setStatus('error');
     }
   };
@@ -117,6 +120,7 @@ function App() {
     setCorporateEmail('');
     setDeliveryEmail('');
     setDeliveryPhone('');
+    setErrorMessage('');
   };
 
   const formatDate = (iso) => {
@@ -419,7 +423,7 @@ function App() {
         <>
           <div style={styles.resultFail}>
             <div style={{ ...styles.resultTitle, color: '#A32D2D' }}>Error sending verification</div>
-            <div style={{ ...styles.resultSub, color: '#A32D2D' }}>Please try again or contact support.</div>
+            <div style={{ ...styles.resultSub, color: '#A32D2D' }}>{errorMessage || 'Please try again or contact support.'}</div>
           </div>
           <button style={styles.btnSecondary} onClick={resetForm}>Try again</button>
         </>

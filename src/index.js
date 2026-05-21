@@ -113,7 +113,7 @@ resolver.define('sendVerification', async (req) => {
     const incodeConfig = await getIncodeConfig();
     const urls = INCODE_URLS[incodeConfig.environment] || INCODE_URLS.demo;
 
-    const issueRes = await api.asApp().requestJira(
+    const issueRes = await api.asUser().requestJira(
       route`/rest/api/3/issue/${issueKey}?fields=summary,reporter`
     );
     const issue = await issueRes.json();
@@ -150,7 +150,20 @@ resolver.define('sendVerification', async (req) => {
     console.log('Incode status:', incodeRes.status);
 
     if (!incodeRes.ok) {
-      throw new Error(`Incode API error: ${responseText}`);
+      let errorMessage = 'Failed to send verification link. Please try again.';
+      try {
+        const errorData = JSON.parse(responseText);
+        if (errorData.status === 4301) {
+          errorMessage = 'Employee not found — check the corporate email address and ensure the employee is enrolled in Incode.';
+        } else if (errorData.status === 401 || incodeRes.status === 401) {
+          errorMessage = 'Invalid Incode credentials — please check your API settings.';
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } catch (e) {
+        // keep default message
+      }
+      throw new Error(errorMessage);
     }
 
     const incodeData = JSON.parse(responseText);
@@ -226,14 +239,14 @@ resolver.define('getAdminConfig', async (req) => {
   try {
     const savedConfig = await storage.get('admin-config');
 
-    const searchRes = await api.asApp().requestJira(
+    const searchRes = await api.asUser().requestJira(
       route`/rest/api/3/search/jql?jql=project+is+not+EMPTY+ORDER+BY+created+DESC&maxResults=10&fields=summary,status`
     );
     const searchData = await searchRes.json();
 
     const transitionMap = {};
     for (const issue of searchData.issues || []) {
-      const transitionsRes = await api.asApp().requestJira(
+      const transitionsRes = await api.asUser().requestJira(
         route`/rest/api/3/issue/${issue.key}/transitions`
       );
       const transitionsData = await transitionsRes.json();
@@ -270,10 +283,15 @@ resolver.define('getAdminConfig', async (req) => {
 });
 
 resolver.define('saveAdminConfig', async (req) => {
-  const { config } = req.payload;
-  await storage.set('admin-config', JSON.stringify(config));
-  console.log('Admin config saved');
-  return { success: true };
+  try {
+    const { config } = req.payload;
+    await storage.set('admin-config', JSON.stringify(config));
+    console.log('Admin config saved');
+    return { success: true };
+  } catch (err) {
+    console.error('Error saving admin config:', err);
+    throw err;
+  }
 });
 
 export const handler = resolver.getDefinitions();
