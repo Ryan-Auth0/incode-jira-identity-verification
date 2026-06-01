@@ -1,8 +1,44 @@
 import { storage } from '@forge/api';
 import api, { route } from '@forge/api';
 
+async function verifyWebhookSecret(req) {
+  const headers = req.headers || {};
+  const secretHeaderRaw = headers['x-incode-secret'] || '';
+  const secret = Array.isArray(secretHeaderRaw) ? secretHeaderRaw[0] : String(secretHeaderRaw);
+
+  try {
+    const stored = await storage.get('webhook-config');
+    if (!stored) {
+      console.log('No webhook config found in storage — falling back to env var');
+      const envSecret = process.env.WEBHOOK_SECRET;
+      if (envSecret && secret === envSecret) {
+        console.log('Webhook secret verified via env var');
+        return true;
+      }
+      console.log('Webhook rejected: no secret configured');
+      return false;
+    }
+
+    const config = JSON.parse(stored);
+    if (!secret || secret !== config.secret) {
+      console.log('Webhook rejected: invalid or missing x-incode-secret header');
+      return false;
+    }
+
+    console.log('Webhook secret verified successfully');
+    return true;
+  } catch (err) {
+    console.error('Token verification error:', err);
+    return false;
+  }
+}
+
 export async function handler(req) {
   console.log('Webhook received:', JSON.stringify(req.body));
+
+  if (!await verifyWebhookSecret(req)) {
+    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+  }
 
   try {
     const body = JSON.parse(req.body);

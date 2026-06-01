@@ -1,6 +1,7 @@
 import Resolver from '@forge/resolver';
 import { storage } from '@forge/api';
 import api, { route } from '@forge/api';
+import crypto from 'crypto';
 
 const INCODE_URLS = {
   demo: {
@@ -160,9 +161,7 @@ resolver.define('sendVerification', async (req) => {
         } else if (errorData.message) {
           errorMessage = errorData.message;
         }
-      } catch (e) {
-        // keep default message
-      }
+      } catch (e) {}
       throw new Error(errorMessage);
     }
 
@@ -232,6 +231,35 @@ resolver.define('testIncodeCredentials', async (req) => {
     return { success: false };
   } catch (err) {
     return { success: false };
+  }
+});
+
+resolver.define('getWebhookConfig', async (req) => {
+  try {
+    const stored = await storage.get('webhook-config');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    const secret = crypto.randomBytes(32).toString('hex');
+    const config = { secret };
+    await storage.set('webhook-config', JSON.stringify(config));
+    return config;
+  } catch (err) {
+    console.error('Error getting webhook config:', err);
+    throw err;
+  }
+});
+
+resolver.define('regenerateWebhookSecret', async (req) => {
+  try {
+    const secret = crypto.randomBytes(32).toString('hex');
+    const config = { secret };
+    await storage.set('webhook-config', JSON.stringify(config));
+    console.log('Webhook secret regenerated');
+    return config;
+  } catch (err) {
+    console.error('Error regenerating webhook secret:', err);
+    throw err;
   }
 });
 
