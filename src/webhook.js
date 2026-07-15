@@ -33,6 +33,21 @@ async function verifyWebhookSecret(req) {
   }
 }
 
+async function checkTransitionPermission(issueKey, accountId) {
+  try {
+    const permissionRes = await api.asApp().requestJira(
+      route`/rest/api/3/user/permission/search?issueKey=${issueKey}&permissions=TRANSITION_ISSUES&accountId=${accountId}`
+    );
+    const permData = await permissionRes.json();
+    const canTransition = permData.permissions?.TRANSITION_ISSUES?.havePermission;
+    console.log(`Permission check for ${accountId} on ${issueKey}: ${canTransition}`);
+    return !!canTransition;
+  } catch (err) {
+    console.error('Permission check error:', err);
+    return false;
+  }
+}
+
 export async function handler(req) {
   console.log('Webhook received:', JSON.stringify(req.body));
 
@@ -56,7 +71,7 @@ export async function handler(req) {
       return { statusCode: 200, body: JSON.stringify({ success: true }) };
     }
 
-    const { issueKey, requesterName } = JSON.parse(stored);
+    const { issueKey, requesterName, accountId } = JSON.parse(stored);
     console.log(`Updating ticket ${issueKey} for ${eventType}`);
 
     const savedConfig = await storage.get('admin-config');
@@ -95,23 +110,33 @@ export async function handler(req) {
       await storage.set(historyKey, JSON.stringify(history));
     }
 
-    if (targetTransitionName) {
-      const transitionsRes = await api.asApp().requestJira(
-        route`/rest/api/3/issue/${issueKey}/transitions`
-      );
-      const transitionsData = await transitionsRes.json();
-      const match = transitionsData.transitions.find(
-        t => t.name.toLowerCase() === targetTransitionName.toLowerCase()
-      );
+    if (targetTransitionName && accountId) {
+      const hasPermission = await checkTransitionPermission(issueKey, accountId);
 
-      if (match) {
-        await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/transitions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transition: { id: match.id } })
-        });
-        console.log(`Ticket ${issueKey} transitioned to "${targetTransitionName}"`);
+      if (!hasPermission) {
+        console.log(`Agent ${accountId} does not have permission to transition ${issueKey} — skipping transition`);
+      } else {
+        const transitionsRes = await api.asApp().requestJira(
+          route`/rest/api/3/issue/${issueKey}/transitions`
+        );
+        const transitionsData = await transitionsRes.json();
+        const match = transitionsData.transitions.find(
+          t => t.name.toLowerCase() === targetTransitionName.toLowerCase()
+        );
+
+        if (match) {
+          await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/transitions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transition: { id: match.id } })
+          });
+          console.log(`Ticket ${issueKey} transitioned to "${targetTransitionName}"`);
+        } else {
+          console.log(`No matching transition found for "${targetTransitionName}"`);
+        }
       }
+    } else if (targetTransitionName && !accountId) {
+      console.log('No accountId stored — skipping permission check and transition');
     }
 
     setTimeout(async () => {

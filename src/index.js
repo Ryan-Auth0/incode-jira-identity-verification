@@ -108,6 +108,7 @@ resolver.define('getPortalVerificationLink', async (req) => {
 
 resolver.define('sendVerification', async (req) => {
   const issueKey = req.context.extension.issue.key;
+  const accountId = req.context.accountId;
   const { corporateEmail, deliveryMethod, deliveryEmail, deliveryPhone } = req.payload;
 
   try {
@@ -187,7 +188,8 @@ resolver.define('sendVerification', async (req) => {
         issueKey,
         requesterName,
         corporateEmail,
-        status: 'PENDING'
+        status: 'PENDING',
+        accountId
       }));
       await addVerificationHistory(issueKey, historyEntry);
       console.log(`Stored interviewId ${incodeData.interviewId} for ticket ${issueKey}`);
