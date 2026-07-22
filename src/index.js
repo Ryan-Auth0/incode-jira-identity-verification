@@ -243,7 +243,7 @@ resolver.define('getWebhookConfig', async (req) => {
       return JSON.parse(stored);
     }
     const secret = crypto.randomBytes(32).toString('hex');
-    const config = { secret };
+    const config = { secret, webhookUrl: null };
     await storage.set('webhook-config', JSON.stringify(config));
     return config;
   } catch (err) {
@@ -254,8 +254,13 @@ resolver.define('getWebhookConfig', async (req) => {
 
 resolver.define('regenerateWebhookSecret', async (req) => {
   try {
+    const existing = await storage.get('webhook-config');
+    const existingConfig = existing ? JSON.parse(existing) : {};
     const secret = crypto.randomBytes(32).toString('hex');
-    const config = { secret };
+    const config = {
+      secret,
+      webhookUrl: existingConfig.webhookUrl || null
+    };
     await storage.set('webhook-config', JSON.stringify(config));
     console.log('Webhook secret regenerated');
     return config;
@@ -320,6 +325,25 @@ resolver.define('saveAdminConfig', async (req) => {
     return { success: true };
   } catch (err) {
     console.error('Error saving admin config:', err);
+    throw err;
+  }
+});
+
+resolver.define('refreshWebhookUrl', async (req) => {
+  try {
+    const { webTrigger } = await import('@forge/api');
+    const webhookUrl = await webTrigger.getUrl('incode-webhook');
+    const existing = await storage.get('webhook-config');
+    const existingConfig = existing ? JSON.parse(existing) : {};
+    const config = {
+      secret: existingConfig.secret || crypto.randomBytes(32).toString('hex'),
+      webhookUrl
+    };
+    await storage.set('webhook-config', JSON.stringify(config));
+    console.log('Webhook URL refreshed:', webhookUrl);
+    return config;
+  } catch (err) {
+    console.error('Error refreshing webhook URL:', err);
     throw err;
   }
 });

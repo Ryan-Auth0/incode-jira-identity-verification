@@ -24,12 +24,22 @@ modules:
       handler: index.handler
     - key: webhook-handler
       handler: webhook.handler
+    - key: lifecycle-handler
+      handler: lifecycle.handler
     - key: personal-data-handler
       handler: personalData.handler
   webtrigger:
     - key: incode-webhook
       function: webhook-handler
   trigger:
+    - key: app-installed
+      function: lifecycle-handler
+      events:
+        - avi:forge:installed
+    - key: app-upgraded
+      function: lifecycle-handler
+      events:
+        - avi:forge:upgraded
     - key: personal-data-reporting
       function: personal-data-handler
       events:
